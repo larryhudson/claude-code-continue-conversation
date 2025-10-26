@@ -1,0 +1,23 @@
+# Claude Code session files
+claude-session-*.tar.gz
+claude-session-metadata-*.json
+
+# Node modules
+node_modules/
+package-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
