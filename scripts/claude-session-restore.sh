@@ -47,9 +47,20 @@ fi
 # Try to download the session from GitHub release
 RELEASE_TAG="claude-sessions-${GIT_BRANCH}"
 log_info "Looking for release: $RELEASE_TAG"
+log_info ""
+log_info "Debug: GitHub authentication status:"
+gh auth status 2>&1 | head -3
+log_info ""
+log_info "Debug: Available releases with 'claude-sessions':"
+gh release list | grep -i claude-sessions || log_warn "  (none found with that pattern)"
+log_info ""
 
 # Check if release exists
+log_info "Debug: Checking for release: $RELEASE_TAG"
 if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+  log_warn "Release not found: $RELEASE_TAG"
+  log_info "Debug: All releases:"
+  gh release list
   log_warn "No session found for branch '$GIT_BRANCH'. Starting fresh."
   exit 0
 fi
@@ -100,11 +111,54 @@ fi
 # Create projects directory if it doesn't exist
 mkdir -p "$PROJECTS_DIR"
 
-# Extract the session archive
+# Calculate the project-specific directory name based on current working directory
+# Claude Code stores sessions in subdirectories named after the working directory path
+# Example: /home/user/path/to/project -> -home-user-path-to-project
+CURRENT_CWD="${PWD}"
+PROJECT_DIR_NAME=$(echo "$CURRENT_CWD" | sed 's/^\//-/; s/\//-/g')
+PROJECT_DIR="$PROJECTS_DIR/$PROJECT_DIR_NAME"
+
+log_info "Project directory: $PROJECT_DIR"
+
+# Create project-specific directory if it doesn't exist
+mkdir -p "$PROJECT_DIR"
+
+# Extract the session archive into the project-specific directory
 if [[ -f "$SESSION_ARCHIVE" ]]; then
-  log_info "Extracting session to $PROJECTS_DIR..."
-  tar -xzf "$SESSION_ARCHIVE" -C "$PROJECTS_DIR"
+  log_info "Extracting session to $PROJECT_DIR..."
+  tar -xzf "$SESSION_ARCHIVE" -C "$PROJECT_DIR"
   log_success "Session restored!"
+
+  # Extract the stored cwd from metadata
+  STORED_CWD=""
+  if [[ -f "$METADATA_FILE" ]]; then
+    if command -v jq &> /dev/null; then
+      STORED_CWD=$(jq -r '.cwd' "$METADATA_FILE" 2>/dev/null || echo "")
+    else
+      # Fallback to grep if jq is not available
+      STORED_CWD=$(grep '"cwd"' "$METADATA_FILE" | head -1 | cut -d'"' -f4)
+    fi
+  fi
+
+  # Update cwd in the session file if stored_cwd differs from current cwd
+  if [[ -n "$STORED_CWD" && "$STORED_CWD" != "$CURRENT_CWD" ]]; then
+    log_info "Updating session cwd from: $STORED_CWD"
+    log_info "                      to: $CURRENT_CWD"
+
+    # Find the session file (should be the only .jsonl file)
+    SESSION_FILE=$(find "$PROJECT_DIR" -name "*.jsonl" -type f | head -1)
+    if [[ -f "$SESSION_FILE" ]]; then
+      # Use sed to replace all occurrences of the old cwd with the new cwd
+      # Escape special characters in the paths for sed
+      ESCAPED_STORED=$(printf '%s\n' "$STORED_CWD" | sed -e 's/[\/&]/\\&/g')
+      ESCAPED_CURRENT=$(printf '%s\n' "$CURRENT_CWD" | sed -e 's/[\/&]/\\&/g')
+
+      sed -i "s/\"cwd\":\"$ESCAPED_STORED\"/\"cwd\":\"$ESCAPED_CURRENT\"/g" "$SESSION_FILE"
+      log_success "Updated cwd in session file"
+    else
+      log_warn "Could not find session file to update cwd"
+    fi
+  fi
 else
   log_error "Failed to download session archive"
   exit 1

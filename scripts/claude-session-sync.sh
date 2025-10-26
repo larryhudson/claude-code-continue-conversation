@@ -97,20 +97,17 @@ EOF
 log_success "Created session archive: $(basename "$SESSION_ARCHIVE")"
 log_success "Created metadata: $(basename "$METADATA_FILE")"
 
-# Upload to GitHub artifacts
+# Upload to GitHub
 log_info "Uploading to GitHub..."
 
-if [[ -n "$GITHUB_ACTIONS" ]]; then
-  # In GitHub Actions, write to output for actions/upload-artifact
-  log_warn "Running in GitHub Actions. Use actions/upload-artifact@v4 in your workflow to upload:"
-  log_warn "  name: claude-session-${GIT_BRANCH}"
-  log_warn "  path: |"
-  log_warn "    $SESSION_ARCHIVE"
-  log_warn "    $METADATA_FILE"
-  exit 0
+if [[ -z "$GITHUB_TOKEN" && -z "$GITHUB_ACTIONS" ]]; then
+  # Not in GitHub Actions and no token - check if gh is authenticated
+  if ! gh auth status > /dev/null 2>&1; then
+    log_error "Not authenticated with GitHub. Run 'gh auth login' or set GITHUB_TOKEN"
+    exit 1
+  fi
 fi
 
-# Outside GitHub Actions - use gh to create a release
 log_info "Using gh CLI to create release..."
 
 # Check if release already exists for this branch
